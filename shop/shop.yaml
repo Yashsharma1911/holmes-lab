@@ -1,0 +1,153 @@
+apiVersion: v1
+kind: Namespace
+metadata: {name: shop}
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: postgres, namespace: shop}
+stringData: {password: shop-demo-pw}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: postgres-data, namespace: shop}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: do-block-storage
+  resources: {requests: {storage: 1Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: postgres, namespace: shop, labels: {app: postgres}}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: postgres}}
+  template:
+    metadata: {labels: {app: postgres}}
+    spec:
+      nodeSelector: {demo.holmes/role: hot}
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - {name: POSTGRES_DB, value: shop}
+            - {name: POSTGRES_USER, value: shop}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: postgres, key: password}}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports: [{containerPort: 5432}]
+          readinessProbe: {exec: {command: [pg_isready, -U, shop]}, periodSeconds: 5}
+          resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {memory: 384Mi}}
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: postgres-data}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: postgres, namespace: shop}
+spec: {selector: {app: postgres}, ports: [{port: 5432}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: checkout-api, namespace: shop, labels: {app: checkout-api}}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: checkout-api}}
+  template:
+    metadata: {labels: {app: checkout-api}}
+    spec:
+      nodeSelector: {demo.holmes/role: hot}
+      containers:
+        - name: checkout-api
+          image: python:3.12-slim
+          command: [sh, -c, "pip install -q --no-cache-dir 'psycopg[binary]' psycopg_pool prometheus_client && exec python -u /app/checkout.py"]
+          env:
+            - {name: DB_HOST, value: postgres}
+            - name: DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: postgres, key: password}}
+          ports: [{name: http, containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5, failureThreshold: 30}
+          resources: {requests: {cpu: 50m, memory: 96Mi}, limits: {memory: 256Mi}}
+          volumeMounts: [{name: app, mountPath: /app}]
+      volumes:
+        - name: app
+          configMap: {name: checkout-code}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: checkout-api, namespace: shop, labels: {app: checkout-api}}
+spec: {selector: {app: checkout-api}, ports: [{name: http, port: 80, targetPort: 8080}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: loadgen, namespace: shop, labels: {app: loadgen}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: loadgen}}
+  template:
+    metadata: {labels: {app: loadgen}}
+    spec:
+      nodeSelector: {doks.digitalocean.com/node-pool: shop}
+      containers:
+        - name: loadgen
+          image: curlimages/curl:8.11.1
+          # ~10 checkouts/sec from 4 parallel shoppers
+          command: [sh, -c, "for i in 1 2 3 4; do (while true; do curl -s -o /dev/null -m 10 -X POST http://checkout-api/checkout; sleep 0.4; done) & done; wait"]
+          resources: {requests: {cpu: 20m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: receipts, namespace: shop, labels: {app: receipts}}
+spec:
+  serviceName: receipts
+  replicas: 2
+  podManagementPolicy: Parallel
+  selector: {matchLabels: {app: receipts}}
+  template:
+    metadata: {labels: {app: receipts}}
+    spec:
+      nodeSelector: {demo.holmes/role: receipts}
+      terminationGracePeriodSeconds: 2
+      containers:
+        - name: receipts
+          image: busybox:1.36
+          command: [sh, -c, "echo receipts writer started; while true; do date >> /data/receipts.log; sleep 30; done"]
+          resources: {requests: {cpu: 5m, memory: 8Mi}, limits: {memory: 32Mi}}
+          volumeMounts: [{name: data, mountPath: /data}]
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: do-block-storage
+        resources: {requests: {storage: 1Gi}}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata: {name: checkout-api, namespace: shop}
+spec:
+  selector: {matchLabels: {app: checkout-api}}
+  endpoints: [{port: http, path: /metrics, interval: 15s}]
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata: {name: shop-alerts, namespace: shop}
+spec:
+  groups:
+    - name: shop
+      rules:
+        - alert: CheckoutHighLatency
+          expr: histogram_quantile(0.99, sum by (le) (rate(checkout_request_duration_seconds_bucket[1m]))) > 0.5
+          for: 1m
+          labels: {severity: critical, namespace: shop, service: checkout-api}
+          annotations: {summary: "checkout-api p99 latency above 500ms", description: "p99 is {{ $value | humanizeDuration }}"}
+        - alert: CheckoutErrorRate
+          expr: sum(rate(checkout_requests_total{status="error"}[1m])) / sum(rate(checkout_requests_total[1m])) > 0.1
+          for: 1m
+          labels: {severity: critical, namespace: shop, service: checkout-api}
+          annotations: {summary: "checkout-api is failing more than 10% of orders"}
+        - alert: ReceiptsPodStuckPending
+          expr: sum by (namespace, pod) (kube_pod_status_phase{namespace="shop", pod=~"receipts-.*", phase="Pending"}) > 0
+          for: 1m
+          labels: {severity: critical}
+          annotations: {summary: "receipts pod {{ $labels.pod }} has been Pending for over a minute"}

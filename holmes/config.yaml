@@ -1,0 +1,40 @@
+# HolmesGPT config for the lab. .env sets HOLMES_CONFIGPATH_DIR=holmes, so plain `holmes ask "..."` picks this file up.
+# Model: set MODEL in .env, e.g. anthropic/claude-sonnet-5-5 or gpt-5.1, and the matching API key.
+toolsets:
+  kubernetes/core: {enabled: true}
+  kubernetes/logs: {enabled: true}
+  kubernetes/live-metrics: {enabled: false}  # no metrics-server; Prometheus covers it
+  prometheus/metrics:
+    enabled: true
+    config:
+      prometheus_url: http://localhost:9090
+  grafana/loki:
+    enabled: true
+    config:
+      api_url: http://localhost:3100
+  helm/core: {enabled: false}
+  aks/core: {enabled: false}
+  aks/node-health: {enabled: false}
+  argocd/core: {enabled: false}
+  cilium/core: {enabled: false}
+  crossplane/core: {enabled: false}
+  docker/core: {enabled: false}
+  hubble/observability: {enabled: false}
+  kubevela/core: {enabled: false}
+  notion: {enabled: false}
+  openshift/core: {enabled: false}
+  openshift/live-metrics: {enabled: false}
+  openshift/logs: {enabled: false}
+  openshift/security: {enabled: false}
+  robusta: {enabled: false}
+  slab: {enabled: false}
+  internet: {enabled: false}
+  inspektor-gadget/node: {enabled: false}
+  inspektor-gadget/tcpdump: {enabled: false}
+  opensearch/query_assist: {enabled: false}
+custom_toolsets:
+  - holmes/digitalocean.yaml
+
+alertmanager_url: http://localhost:9093
+custom_skill_paths:
+  - holmes/skills/

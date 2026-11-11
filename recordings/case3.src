@@ -1,0 +1,13 @@
+output recordings/case3-volume-limit.mp4
+setup
+$ kubectl get statefulset receipts -n shop
+sleep 3
+$ make break-volumes
+sleep 10
+$ kubectl get pods -n shop receipts-15
+sleep 4
+hidden until curl -s localhost:9093/api/v2/alerts | grep -q ReceiptsPodStuckPending; do sleep 5; done
+$ holmes investigate alertmanager --alertmanager-alertname ReceiptsPodStuckPending
+waitprompt 420
+sleep 14
+hidden-end make reset-volumes

@@ -1,0 +1,14 @@
+# secrets
+.env
+kubeconfig.yaml
+# local state
+.venv/
+holmes/toolsets_status.json
+holmes/config_hashes
+holmes/auth/
+runs/
+recordings/*.mp4
+recordings/*.tape
+!recordings/settings.tape
+__pycache__/
+.DS_Store

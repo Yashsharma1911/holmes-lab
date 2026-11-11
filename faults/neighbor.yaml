@@ -1,0 +1,29 @@
+# Case 1: a nightly report job with a big CPU request and no limit lands on checkout's node.
+apiVersion: batch/v1
+kind: CronJob
+metadata: {name: report-batch, namespace: shop, labels: {app: report-batch}}
+spec:
+  schedule: "* * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 58
+      backoffLimit: 0
+      template:
+        metadata: {labels: {app: report-batch}}
+        spec:
+          restartPolicy: Never
+          nodeSelector: {doks.digitalocean.com/node-pool: shop}
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector: {matchLabels: {app: checkout-api}}
+                  topologyKey: kubernetes.io/hostname
+          containers:
+            - name: report
+              image: python:3.12-slim
+              command: [python, -c, "import multiprocessing as m, time\ndef burn():\n  t=time.time()\n  while time.time()-t<48: pass\nprint('building monthly sales report', flush=True)\nps=[m.Process(target=burn) for _ in range(4)]\n[p.start() for p in ps]; [p.join() for p in ps]"]
+              resources:
+                requests: {cpu: "1", memory: 64Mi}

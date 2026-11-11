@@ -1,0 +1,35 @@
+# Trimmed kube-prometheus-stack for 2 GB ops nodes
+defaultRules:
+  create: true
+  rules: {etcd: false, kubeSchedulerAlerting: false, kubeSchedulerRecording: false, kubeControllerManager: false, kubeProxy: false}
+kubeEtcd: {enabled: false}
+kubeScheduler: {enabled: false}
+kubeControllerManager: {enabled: false}
+kubeProxy: {enabled: false}
+prometheusOperator:
+  nodeSelector: {doks.digitalocean.com/node-pool: ops}
+  resources: {requests: {cpu: 50m, memory: 100Mi}, limits: {memory: 200Mi}}
+prometheus:
+  prometheusSpec:
+    nodeSelector: {doks.digitalocean.com/node-pool: ops}
+    retention: 2d
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+    resources: {requests: {cpu: 200m, memory: 500Mi}, limits: {memory: 900Mi}}
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+alertmanager:
+  alertmanagerSpec:
+    nodeSelector: {doks.digitalocean.com/node-pool: ops}
+    resources: {requests: {cpu: 20m, memory: 50Mi}, limits: {memory: 100Mi}}
+grafana:
+  nodeSelector: {doks.digitalocean.com/node-pool: ops}
+  adminPassword: holmes-demo
+  resources: {requests: {cpu: 50m, memory: 256Mi}, limits: {memory: 512Mi}}
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      url: http://loki.monitoring:3100
+kube-state-metrics:
+  nodeSelector: {doks.digitalocean.com/node-pool: ops}

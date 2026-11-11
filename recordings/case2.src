@@ -1,0 +1,15 @@
+output recordings/case1-disk-full.mp4
+setup
+$ kubectl get pods -n shop
+sleep 4
+$ make break-disk
+sleep 6
+$ kubectl logs -n shop deploy/checkout-api --tail=3
+sleep 5
+$ kubectl get pods -n shop
+sleep 4
+hidden sleep 70
+$ holmes ask "checkout is failing in namespace shop. Find the root cause." --refresh-toolsets --no-interactive
+waitprompt 420
+sleep 16
+hidden-end make reset-disk

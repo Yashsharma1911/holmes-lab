@@ -1,0 +1,13 @@
+output recordings/case2-noisy-neighbor.mp4
+setup
+$ kubectl get pods -n shop -o wide
+sleep 4
+$ make break-neighbor
+sleep 3
+hidden until curl -s localhost:9093/api/v2/alerts | grep -q CheckoutHighLatency; do sleep 5; done
+$ kubectl get pods -n shop
+sleep 4
+$ holmes ask "checkout-api in namespace shop got slow in the last few minutes and every pod is Running. Why?" --refresh-toolsets --no-interactive
+waitprompt 420
+sleep 14
+hidden-end make reset-neighbor

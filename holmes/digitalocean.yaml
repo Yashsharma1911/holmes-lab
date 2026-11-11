@@ -1,0 +1,15 @@
+# Custom toolset: the cloud layer under DOKS, read-only.
+# The token in this lab only has the Kubernetes scope, so these tools read node pools,
+# not Droplets or volumes. With a token that has block_storage:read, add a volumes tool.
+toolsets:
+  digitalocean/doks:
+    description: "Read-only DigitalOcean API view of the DOKS cluster: node pools, Droplet sizes, autoscaling settings and node counts"
+    prerequisites:
+      - command: "doctl kubernetes cluster list --format ID"
+    tools:
+      - name: "doks_node_pools"
+        description: "List the cluster's DigitalOcean node pools with Droplet size, node count and autoscale min/max. Use to check whether a node pool can grow, and how big its nodes are, when Kubernetes resources or per-node limits run out."
+        command: "doctl kubernetes cluster node-pool list weekend-project --output json | jq '[.[] | {name, size, count, auto_scale, min_nodes, max_nodes, labels, nodes: [.nodes[] | {name, droplet_id, status: .status.state}]}]'"
+      - name: "doks_cluster_info"
+        description: "Show DOKS cluster version, region, maintenance and auto-upgrade settings from the DigitalOcean API"
+        command: "doctl kubernetes cluster get weekend-project --output json | jq '.[0] | {name, region, version, auto_upgrade, surge_upgrade, status: .status.state, created_at}'"
